@@ -1,3 +1,6 @@
+pub mod token; 
+
+// main func
 fn main() {
-    println!("Hello, world!");
+    return;
 }
