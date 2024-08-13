@@ -30,34 +30,48 @@ impl Lexer {
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
         let mut tokens = Vec::new();
+
         while !self.is_at_end() {
-            self.skip_whitespace(); // ignore whitespaces
+            self.skip_whitespace();
             let start_column = self.column;
 
-            let token = if let Some(c) = self.advance() {
-                match c {
-                    'a'..='z' | 'A'..='Z' | '_' => self.identifier_or_keyword(start_column)?, // handle keywords/idents
-                    '0'..='9' => self.number(start_column)?, // handle numbers
-                    '"' => self.string_literal(start_column)?, // handle string literals
-                    '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|' => self.operator(c, start_column), // handle operators
-                    '(' | '{' | '[' => self.grouping(c, start_column)?, // handle grouping
-                    ')' | '}' | ']' => return Err(format!("unmatched grouping character '{}' at line {}, column {}", c, self.line, start_column)), // handle unmatched closing groups
-                    ',' | '.' | ';' | ':' => self.punctuation(c, start_column), // handle punctuation
-                    '\n' => {
-                        self.line += 1;
-                        self.column = 0; // will increment to 1 at start of next iteration
-                        Token::new(TokenType::Newline, "\n".to_string(), self.line, start_column, self.current_line())
-                    },
-                    _ => return Err(format!("unexpected character '{}' at line {}, column {}", c, self.line, self.column)), // handle unexpected chars
-                }
-            } else {
+            if self.is_at_end() {
                 break;
-            };
+            }
 
-            tokens.push(token); // push token to list
+            let c = self.advance().unwrap();
+
+            match c {
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    let token = self.identifier_or_keyword(start_column)?;
+                    tokens.push(token);
+                }
+                '0'..='9' => {
+                    let token = self.number(start_column)?;
+                    tokens.push(token);
+                }
+                '"' => {
+                    let token = self.string_literal(start_column)?;
+                    tokens.push(token);
+                }
+                '+' | '-' | '*' | '/' | '%' | '=' | '!' | '<' | '>' | '&' | '|' => {
+                    let token = self.operator(c, start_column);
+                    tokens.push(token);
+                }
+                '(' | ')' | '{' | '}' | '[' | ']' | ',' | '.' | ';' | ':' => {
+                    tokens.push(Token::new(TokenType::Punctuation, c.to_string(), self.line, start_column, self.current_line()));
+                }
+                '\n' => {
+                    self.line += 1;
+                    self.column = 0;
+                }
+                _ => {
+                    return Err(format!("Unexpected character '{}' at line {}, column {}", c, self.line, self.column));
+                }
+            }
         }
 
-        tokens.push(Token::new(TokenType::Eof, "".to_string(), self.line, self.column, self.current_line())); // end of file token
+        tokens.push(Token::new(TokenType::Eof, "".to_string(), self.line, self.column, self.current_line()));
         Ok(tokens)
     }
 
@@ -82,7 +96,7 @@ impl Lexer {
         self.advance(); // consume '('
         let mut children = vec![Token::new(TokenType::Identifier, name, self.line, start_column, self.current_line())];
         children.push(self.punctuation('(', start_column)); // add '('
-    
+
         // gather all parameters
         while let Some(c) = self.peek() {
             if c == ')' {
@@ -90,21 +104,23 @@ impl Lexer {
                 self.advance();
                 break;
             }
-            children.push(self.tokenize()?); // recursive call to tokenize params
+
+            let mut param_tokens = self.tokenize()?; // Correctly tokenize parameters
+            children.append(&mut param_tokens);
+
             if self.peek() == Some(',') {
                 children.push(self.punctuation(',', self.column)); // add ','
                 self.advance();
             }
         }
-    
+
         if self.peek() == Some('{') {
             children.push(self.grouping('{', start_column)?); // group function body
-            Ok(Token::with_children(TokenType::Group, "FunctionDeclaration".to_string(), self.line, start_column, children, self.current_line()))
+            Ok(Token::with_children(TokenType::Group, "FunctionDeclaration".to_string(), self.line, start_column, self.current_line(), children))
         } else {
-            Ok(Token::with_children(TokenType::Group, "FunctionCall".to_string(), self.line, start_column, children, self.current_line()))
+            Ok(Token::with_children(TokenType::Group, "FunctionCall".to_string(), self.line, start_column, self.current_line(), children))
         }
     }
-    
 
     fn number(&mut self, start_column: usize) -> Result<Token, String> {
         let start = self.current - 1;
@@ -167,21 +183,24 @@ impl Lexer {
             '[' => ']',
             _ => return Err(format!("invalid grouping character '{}'", start_char)),
         };
-    
+
         let mut children = vec![Token::new(TokenType::Punctuation, start_char.to_string(), self.line, start_column, self.current_line())];
-    
+
         while let Some(c) = self.peek() {
             if c == matching_char {
                 children.push(self.punctuation(matching_char, self.column));
                 self.advance();
                 break;
+            } else if c == ')' || c == '}' || c == ']' {
+                return Err(format!("unmatched grouping character '{}' at line {}, column {}", c, self.line, self.column));
+            } else {
+                let mut inner_tokens = self.tokenize()?;
+                children.append(&mut inner_tokens);
             }
-            children.push(self.tokenize()?); // recursively tokenize inner group
         }
-    
-        Ok(Token::with_children(TokenType::Group, start_char.to_string(), self.line, start_column, children, self.current_line()))
+
+        Ok(Token::with_children(TokenType::Group, start_char.to_string(), self.line, start_column, self.current_line(), children))
     }
-    
 
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
