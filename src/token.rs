@@ -9,7 +9,7 @@ pub enum TokenType {
     Indent,
     Dedent,
     Newline,
-    Group,            // Group tokens, like for parentheses, brackets, etc.
+    Group,            // parentheses, brackets, etc.
     Eof,
 }
 

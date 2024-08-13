@@ -40,5 +40,9 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
-    Function(String, Vec<String>, Box<Stmt>),
+    // Function(String, Vec<String>, Box<Stmt>),
+    FunctionDeclaration(String, Vec<String>, Box<Stmt>),
+    FunctionCall(Box<Expr>, Vec<Expr>),
+    VariableDeclaration(String, Option<Expr>),
+    FunctionParameters(Vec<String>),
 }
