@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     Identifier, // variable names, function names, etc.
     Keyword,    // reserved keywords like if, else, while, def, etc.
@@ -7,7 +7,7 @@ pub enum TokenType {
     Null,
     StringLiteral,
     Operator,    // +, -, *, /, etc.
-    Punctuation, // (, ), {, }, ;, etc.
+    Punctuation, // (, ), ;, etc.
     Indent,
     Dedent,
     Newline,

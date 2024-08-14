@@ -14,18 +14,27 @@ impl Lexer {
         let mut keywords = HashMap::new();
         keywords.insert("if".to_string(), TokenType::Keyword);
         keywords.insert("else".to_string(), TokenType::Keyword);
+        keywords.insert("elif".to_string(), TokenType::Keyword);
         keywords.insert("while".to_string(), TokenType::Keyword);
+        keywords.insert("for".to_string(), TokenType::Keyword);
+        keywords.insert("do".to_string(), TokenType::Keyword);
+        keywords.insert("end".to_string(), TokenType::Keyword);
         keywords.insert("def".to_string(), TokenType::Keyword);
         keywords.insert("return".to_string(), TokenType::Keyword);
         keywords.insert("print".to_string(), TokenType::Keyword);
         keywords.insert("true".to_string(), TokenType::Boolean);
         keywords.insert("false".to_string(), TokenType::Boolean);
         keywords.insert("null".to_string(), TokenType::Null);
-        keywords.insert("for".to_string(), TokenType::Keyword);
-        keywords.insert("foreach".to_string(), TokenType::Keyword);
+        keywords.insert("mut".to_string(), TokenType::Keyword);
+        keywords.insert("type".to_string(), TokenType::Keyword);
+        keywords.insert("module".to_string(), TokenType::Keyword);
         keywords.insert("import".to_string(), TokenType::Keyword);
-        keywords.insert("struct".to_string(), TokenType::Keyword);
         keywords.insert("class".to_string(), TokenType::Keyword);
+        keywords.insert("extends".to_string(), TokenType::Keyword);
+        keywords.insert("go".to_string(), TokenType::Keyword);
+        keywords.insert("schedule".to_string(), TokenType::Keyword);
+        keywords.insert("macro".to_string(), TokenType::Keyword);
+        keywords.insert("ffi".to_string(), TokenType::Keyword);
 
         Lexer {
             source: source.chars().collect(),
@@ -65,6 +74,22 @@ impl Lexer {
                 '+' | '-' | '*' | '/' | '%' | '=' | '!' | '<' | '>' | '&' | '|' | '^' | '~' => {
                     let token = self.operator(c, start_column);
                     tokens.push(token);
+                }
+                '|' => {
+                    if self.match_char('>') {
+                        tokens.push(Token::new(
+                            TokenType::Operator,
+                            "|>".to_string(),
+                            self.line,
+                            start_column,
+                            self.current_line(),
+                        ));
+                    } else {
+                        return Err(format!(
+                            "Unexpected character '|' at line {}, column {}",
+                            self.line, self.column
+                        ));
+                    }
                 }
                 '(' | ')' | '{' | '}' | '[' | ']' | ',' | '.' | ';' | ':' => {
                     tokens.push(Token::new(
@@ -113,11 +138,6 @@ impl Lexer {
             .cloned()
             .unwrap_or(TokenType::Identifier);
 
-        // check if it's a function or var declaration
-        if token_type == TokenType::Identifier && self.peek() == Some('(') {
-            return self.function_call_or_declaration(lexeme, start_column);
-        }
-
         Ok(Token::new(
             token_type,
             lexeme,
@@ -125,61 +145,6 @@ impl Lexer {
             start_column,
             self.current_line(),
         ))
-    }
-
-    fn function_call_or_declaration(
-        &mut self,
-        name: String,
-        start_column: usize,
-    ) -> Result<Token, String> {
-        // it's a function call/declaration if followed by '('
-        self.advance(); // consume '('
-        let mut children = vec![Token::new(
-            TokenType::Identifier,
-            name,
-            self.line,
-            start_column,
-            self.current_line(),
-        )];
-        children.push(self.punctuation('(', start_column)); // add '('
-
-        // gather all parameters
-        while let Some(c) = self.peek() {
-            if c == ')' {
-                children.push(self.punctuation(')', self.column)); // add ')'
-                self.advance();
-                break;
-            }
-
-            let mut param_tokens = self.tokenize()?; // Correctly tokenize parameters
-            children.append(&mut param_tokens);
-
-            if self.peek() == Some(',') {
-                children.push(self.punctuation(',', self.column)); // add ','
-                self.advance();
-            }
-        }
-
-        if self.peek() == Some('{') {
-            children.push(self.grouping('{', start_column)?); // group function body
-            Ok(Token::with_children(
-                TokenType::Group,
-                "FunctionDeclaration".to_string(),
-                self.line,
-                start_column,
-                self.current_line(),
-                children,
-            ))
-        } else {
-            Ok(Token::with_children(
-                TokenType::Group,
-                "FunctionCall".to_string(),
-                self.line,
-                start_column,
-                self.current_line(),
-                children,
-            ))
-        }
     }
 
     fn number(&mut self, start_column: usize) -> Result<Token, String> {
@@ -263,56 +228,15 @@ impl Lexer {
         )
     }
 
-    fn punctuation(&mut self, char: char, start_column: usize) -> Token {
-        Token::new(
-            TokenType::Punctuation,
-            char.to_string(),
-            self.line,
-            start_column,
-            self.current_line(),
-        )
-    }
-
-    fn grouping(&mut self, start_char: char, start_column: usize) -> Result<Token, String> {
-        let matching_char = match start_char {
-            '(' => ')',
-            '{' => '}',
-            '[' => ']',
-            _ => return Err(format!("invalid grouping character '{}'", start_char)),
-        };
-
-        let mut children = vec![Token::new(
-            TokenType::Punctuation,
-            start_char.to_string(),
-            self.line,
-            start_column,
-            self.current_line(),
-        )];
-
-        while let Some(c) = self.peek() {
-            if c == matching_char {
-                children.push(self.punctuation(matching_char, self.column));
-                self.advance();
-                break;
-            } else if c == ')' || c == '}' || c == ']' {
-                return Err(format!(
-                    "unmatched grouping character '{}' at line {}, column {}",
-                    c, self.line, self.column
-                ));
-            } else {
-                let mut inner_tokens = self.tokenize()?;
-                children.append(&mut inner_tokens);
-            }
+    fn match_char(&mut self, expected: char) -> bool {
+        if self.is_at_end() {
+            return false;
         }
-
-        Ok(Token::with_children(
-            TokenType::Group,
-            start_char.to_string(),
-            self.line,
-            start_column,
-            self.current_line(),
-            children,
-        ))
+        if self.source[self.current] != expected {
+            return false;
+        }
+        self.advance();
+        true
     }
 
     fn skip_whitespace(&mut self) {
@@ -368,8 +292,7 @@ mod tests {
 
     #[test]
     fn test_keywords() {
-        let source =
-            "if else while def return print true false null for foreach import struct class";
+        let source = "if else elif while do end def return print true false null mut type module import class extends go schedule macro ffi";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
 
@@ -380,9 +303,17 @@ mod tests {
             TokenType::Keyword,
             TokenType::Keyword,
             TokenType::Keyword,
+            TokenType::Keyword,
+            TokenType::Keyword,
+            TokenType::Keyword,
             TokenType::Boolean,
             TokenType::Boolean,
             TokenType::Null,
+            TokenType::Keyword,
+            TokenType::Keyword,
+            TokenType::Keyword,
+            TokenType::Keyword,
+            TokenType::Keyword,
             TokenType::Keyword,
             TokenType::Keyword,
             TokenType::Keyword,
@@ -441,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_operators() {
-        let source = "+ - * / == != < > <= >= && || & | ^ ~ << >>";
+        let source = "+ - * / == != < > <= >= && || & | ^ ~ << >> |>";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
 
