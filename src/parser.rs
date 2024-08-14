@@ -58,18 +58,48 @@ impl Parser {
 
     fn print_statement(&mut self) -> Result<Stmt, String> {
         let value = self.expression()?;
-        self.consume(TokenType::Punctuation, "Expect ';' after value.")?;
+        self.consume(TokenType::Punctuation, "Expect ';' after value.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Stmt::Print(value))
     }
 
     fn if_statement(&mut self) -> Result<Stmt, String> {
         let condition = self.expression()?;
-        self.consume(TokenType::Keyword, "Expect 'do' after condition.")?;
+        self.consume(TokenType::Keyword, "Expect 'do' after condition.")
+            .and_then(|t| {
+                if t.lexeme == "do" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected 'do' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         let then_branch = self.block()?;
         let mut else_branch = None;
 
         if self.match_token(&[TokenType::Keyword]) && self.previous().lexeme == "else" {
-            self.consume(TokenType::Keyword, "Expect 'do' after 'else'.")?;
+            self.consume(TokenType::Keyword, "Expect 'do' after 'else'.")
+                .and_then(|t| {
+                    if t.lexeme == "do" {
+                        Ok(t)
+                    } else {
+                        Err(format!(
+                            "Expected 'do' but found '{}' at line {}, column {}",
+                            t.lexeme, t.line, t.column
+                        ))
+                    }
+                })?;
             else_branch = Some(self.block()?);
         }
 
@@ -78,7 +108,17 @@ impl Parser {
 
     fn while_statement(&mut self) -> Result<Stmt, String> {
         let condition = self.expression()?;
-        self.consume(TokenType::Keyword, "Expect 'do' after condition.")?;
+        self.consume(TokenType::Keyword, "Expect 'do' after condition.")
+            .and_then(|t| {
+                if t.lexeme == "do" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected 'do' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         let body = self.block()?;
         Ok(Stmt::While(condition, body))
     }
@@ -94,9 +134,17 @@ impl Parser {
         self.consume(TokenType::Punctuation, "Expect '..' after start value.")?;
 
         let end = self.expression()?;
-
-        self.consume(TokenType::Keyword, "Expect 'do' after range.")?;
-
+        self.consume(TokenType::Keyword, "Expect 'do' after range.")
+            .and_then(|t| {
+                if t.lexeme == "do" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected 'do' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         let body = self.block()?;
 
         Ok(Stmt::For(variable_lexeme, start, end, body))
@@ -108,7 +156,17 @@ impl Parser {
         } else {
             Some(self.expression()?)
         };
-        self.consume(TokenType::Punctuation, "Expect ';' after return value.")?;
+        self.consume(TokenType::Punctuation, "Expect ';' after return value.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Stmt::Return(expr))
     }
 
@@ -128,7 +186,17 @@ impl Parser {
 
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
-        self.consume(TokenType::Punctuation, "Expect ';' after expression.")?;
+        self.consume(TokenType::Punctuation, "Expect ';' after expression.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Stmt::Expression(expr))
     }
 
@@ -243,7 +311,7 @@ impl Parser {
                 "-" => Operator::Subtract,
                 _ => unreachable!(),
             };
-            let right = self.factor()?;
+            let right = self.factor()?; // Handle operator precedence correctly
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
 
@@ -310,7 +378,17 @@ impl Parser {
                 }
             }
         }
-        self.consume(TokenType::Punctuation, "Expect ')' after arguments.")?;
+        self.consume(TokenType::Punctuation, "Expect ')' after arguments.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Expr::FunctionCall(callee.to_string(), arguments))
     }
 
@@ -321,7 +399,17 @@ impl Parser {
 
     fn index_access(&mut self, object: Expr) -> Result<Expr, String> {
         let index = self.expression()?;
-        self.consume(TokenType::Punctuation, "Expect ']' after index.")?;
+        self.consume(TokenType::Punctuation, "Expect ']' after index.")
+            .and_then(|t| {
+                if t.lexeme == "]" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ']' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Expr::Index(Box::new(object), Box::new(index)))
     }
 
@@ -354,7 +442,17 @@ impl Parser {
 
         if self.match_token(&[TokenType::Punctuation]) && self.previous().lexeme == "(" {
             let expr = self.expression()?;
-            self.consume(TokenType::Punctuation, "Expect ')' after expression.")?;
+            self.consume(TokenType::Punctuation, "Expect ')' after expression.")
+                .and_then(|t| {
+                    if t.lexeme == ")" {
+                        Ok(t)
+                    } else {
+                        Err(format!(
+                            "Expected ')' but found '{}' at line {}, column {}",
+                            t.lexeme, t.line, t.column
+                        ))
+                    }
+                })?;
             return Ok(Expr::Group(Box::new(expr)));
         }
 
@@ -398,7 +496,17 @@ impl Parser {
             }
         }
 
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")?;
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         self.consume(TokenType::Punctuation, "Expect '->' before return type.")?;
 
         let return_type = self.consume(TokenType::Identifier, "Expect return type.")?;
@@ -504,7 +612,17 @@ impl Parser {
             }
         }
 
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")?;
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         self.consume(TokenType::Keyword, "Expect 'do' before macro body.")?;
 
         let body = self.block()?;
@@ -543,7 +661,17 @@ impl Parser {
             }
         }
 
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")?;
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         self.consume(
             TokenType::Keyword,
             "Expect 'end' after FFI function declaration.",
@@ -560,7 +688,17 @@ impl Parser {
         let module_name =
             self.consume(TokenType::StringLiteral, "Expect module name to import.")?;
         let module_name_lexeme = module_name.lexeme.clone();
-        self.consume(TokenType::Punctuation, "Expect ';' after import statement.")?;
+        self.consume(TokenType::Punctuation, "Expect ';' after import statement.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
         Ok(Stmt::Import(module_name_lexeme))
     }
 
@@ -578,7 +716,17 @@ impl Parser {
         self.consume(
             TokenType::Punctuation,
             "Expect ';' after variable declaration.",
-        )?;
+        )
+        .and_then(|t| {
+            if t.lexeme == ";" {
+                Ok(t)
+            } else {
+                Err(format!(
+                    "Expected ';' but found '{}' at line {}, column {}",
+                    t.lexeme, t.line, t.column
+                ))
+            }
+        })?;
         Ok(Stmt::VariableDeclaration(name, initializer, mutable))
     }
 
@@ -640,6 +788,17 @@ mod tests {
     fn parse_input(input: &str) -> Vec<Stmt> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
+
+        let debug_print_tokens = true;
+
+        if debug_print_tokens {
+            println!();
+            for token in &tokens {
+                println!("{:?}", token);
+            }
+            println!();
+        }
+
         let mut parser = Parser::new(tokens);
         parser.parse().unwrap()
     }
