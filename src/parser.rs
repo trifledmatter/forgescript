@@ -60,9 +60,10 @@ impl Parser {
                 let param_type = self.consume(TokenType::Identifier, "Expect parameter type.")?;
                 parameters.push((param_name_lexeme, param_type.lexeme.clone()));
 
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
+                self.advance(); // Advance past the comma
             }
         }
 
@@ -115,14 +116,18 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(TokenType::Keyword) && !self.is_at_end() {
-            if self.match_token(&[TokenType::Identifier]) {
-                let field_name = self.previous().lexeme.clone();
+            if self.check(TokenType::Identifier) {
+                let field_name = self
+                    .consume(TokenType::Identifier, "Expect field name.")?
+                    .lexeme
+                    .clone();
 
                 self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
 
                 let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
                 fields.push((field_name, field_type.lexeme.clone()));
-            } else if self.match_token(&[TokenType::Keyword]) && self.previous().lexeme == "def" {
+            } else if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "def" {
+                self.advance();
                 methods.push(Box::new(self.function_declaration()?));
             } else {
                 let peeked_token = self.peek().unwrap();
@@ -155,20 +160,10 @@ impl Parser {
             let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
             fields.push((field_name_lexeme, field_type.lexeme.clone()));
 
-            self.consume(
-                TokenType::Punctuation,
-                "Expect ',' or 'end' after field declaration.",
-            )
-            .and_then(|t| {
-                if t.lexeme == "," || t.lexeme == "end" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ',' or 'end' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
+            if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
+                break;
+            }
+            self.advance(); // Advance past the comma
         }
 
         self.consume(TokenType::Keyword, "Expect 'end' after type declaration.")?;
@@ -193,7 +188,8 @@ impl Parser {
         let then_branch = self.block()?;
         let mut else_branch = None;
 
-        if self.match_token(&[TokenType::Keyword]) && self.previous().lexeme == "else" {
+        if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "else" {
+            self.advance(); // Advance past 'else'
             self.consume(TokenType::Keyword, "Expect 'do' after 'else'.")
                 .and_then(|t| {
                     if t.lexeme == "do" {
@@ -279,9 +275,10 @@ impl Parser {
             loop {
                 let param = self.consume(TokenType::Identifier, "Expect parameter name.")?;
                 parameters.push(param.lexeme.clone());
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
+                self.advance(); // Advance past the comma
             }
         }
 
@@ -331,9 +328,10 @@ impl Parser {
 
                 parameters.push((param_name_lexeme, param_type_lexeme));
 
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
+                self.advance(); // Advance past the comma
             }
         }
 
@@ -385,10 +383,9 @@ impl Parser {
         let name = name_token.lexeme.clone();
 
         let mut initializer = None;
-        if self.match_token(&[TokenType::Operator]) {
-            if self.previous().lexeme == "=" {
-                initializer = Some(self.expression()?);
-            }
+        if self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "=" {
+            self.advance();
+            initializer = Some(self.expression()?);
         }
 
         self.consume(
@@ -410,7 +407,10 @@ impl Parser {
 
     // expects "print" keyword, expression, ";"
     fn print_statement(&mut self) -> Result<Stmt, String> {
+        println!("Print statement peek before: {:#?}", self.peek());
         let value = self.expression()?;
+        println!("Print statement peek after: {:#?}", self.peek());
+
         self.consume(TokenType::Punctuation, "Expect ';' after value.")
             .and_then(|t| {
                 if t.lexeme == ";" {
@@ -464,26 +464,35 @@ impl Parser {
 
     // expects expression, ";"
     fn expression_statement(&mut self) -> Result<Stmt, String> {
+        println!("Before expr: {:#?}", self.peek());
+
         let expr = self.expression()?;
-        self.consume(TokenType::Punctuation, "Expect ';' after expression.")
-            .and_then(|t| {
-                if t.lexeme == ";" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ';' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
+
+        println!("After expr: {:#?}", self.peek());
+
+        if self.peek().map(|t| t.token_type) != Some(TokenType::Punctuation) {
+            return Err(format!(
+                "Expected ';' after expression but found {:?} at line {}, column {}",
+                self.peek().unwrap().token_type, // Current token
+                self.peek().unwrap().line,
+                self.peek().unwrap().column,
+            ));
+        }
+
+        self.consume(TokenType::Punctuation, "Expect ';' after expression.")?; // Now consume the semicolon
         Ok(Stmt::Expression(expr))
     }
 
     // expects assignment expression, which may include a variable or property access, followed by '=' and a value expression
     fn assignment(&mut self) -> Result<Expr, String> {
+        println!("Before or expr: {:#?}", self.peek());
+
         let expr = self.or()?;
 
-        if self.match_token(&[TokenType::Operator]) && self.previous().lexeme == "=" {
+        println!("After or expr: {:#?}", self.peek());
+
+        if self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "=" {
+            self.advance(); // Advance past the '='
             let equals = self.previous().clone();
             let value = self.assignment()?;
             match expr {
@@ -515,7 +524,8 @@ impl Parser {
     fn or(&mut self) -> Result<Expr, String> {
         let mut expr = self.and()?;
 
-        while self.match_token(&[TokenType::Operator]) && self.previous().lexeme == "||" {
+        while self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "||" {
+            self.advance(); // Advance past the '||'
             let operator = Operator::Or;
             let right = self.and()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
@@ -528,7 +538,8 @@ impl Parser {
     fn and(&mut self) -> Result<Expr, String> {
         let mut expr = self.equality()?;
 
-        while self.match_token(&[TokenType::Operator]) && self.previous().lexeme == "&&" {
+        while self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "&&" {
+            self.advance(); // Advance past the '&&'
             let operator = Operator::And;
             let right = self.equality()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
@@ -541,14 +552,15 @@ impl Parser {
     fn equality(&mut self) -> Result<Expr, String> {
         let mut expr = self.comparison()?;
 
-        while self.match_token(&[TokenType::Operator])
-            && (self.previous().lexeme == "==" || self.previous().lexeme == "!=")
+        while self.check(TokenType::Operator)
+            && (self.peek().unwrap().lexeme == "==" || self.peek().unwrap().lexeme == "!=")
         {
-            let operator = match self.previous().lexeme.as_str() {
+            let operator = match self.peek().unwrap().lexeme.as_str() {
                 "==" => Operator::Equal,
                 "!=" => Operator::NotEqual,
                 _ => unreachable!(),
             };
+            self.advance(); // Advance past '==' or '!='
             let right = self.comparison()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -560,19 +572,20 @@ impl Parser {
     fn comparison(&mut self) -> Result<Expr, String> {
         let mut expr = self.term()?;
 
-        while self.match_token(&[TokenType::Operator])
-            && (self.previous().lexeme == "<"
-                || self.previous().lexeme == "<="
-                || self.previous().lexeme == ">"
-                || self.previous().lexeme == ">=")
+        while self.check(TokenType::Operator)
+            && (self.peek().unwrap().lexeme == "<"
+                || self.peek().unwrap().lexeme == "<="
+                || self.peek().unwrap().lexeme == ">"
+                || self.peek().unwrap().lexeme == ">=")
         {
-            let operator = match self.previous().lexeme.as_str() {
+            let operator = match self.peek().unwrap().lexeme.as_str() {
                 "<" => Operator::Less,
                 "<=" => Operator::LessEqual,
                 ">" => Operator::Greater,
                 ">=" => Operator::GreaterEqual,
                 _ => unreachable!(),
             };
+            self.advance(); // Advance past the comparison operator
             let right = self.term()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -584,14 +597,15 @@ impl Parser {
     fn term(&mut self) -> Result<Expr, String> {
         let mut expr = self.factor()?;
 
-        while self.match_token(&[TokenType::Operator])
-            && (self.previous().lexeme == "+" || self.previous().lexeme == "-")
+        while self.check(TokenType::Operator)
+            && (self.peek().unwrap().lexeme == "+" || self.peek().unwrap().lexeme == "-")
         {
-            let operator = match self.previous().lexeme.as_str() {
+            let operator = match self.peek().unwrap().lexeme.as_str() {
                 "+" => Operator::Add,
                 "-" => Operator::Subtract,
                 _ => unreachable!(),
             };
+            self.advance(); // Advance past the '+' or '-'
             let right = self.factor()?; // Handle operator precedence correctly
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -603,14 +617,15 @@ impl Parser {
     fn factor(&mut self) -> Result<Expr, String> {
         let mut expr = self.unary()?;
 
-        while self.match_token(&[TokenType::Operator])
-            && (self.previous().lexeme == "*" || self.previous().lexeme == "/")
+        while self.check(TokenType::Operator)
+            && (self.peek().unwrap().lexeme == "*" || self.peek().unwrap().lexeme == "/")
         {
-            let operator = match self.previous().lexeme.as_str() {
+            let operator = match self.peek().unwrap().lexeme.as_str() {
                 "*" => Operator::Multiply,
                 "/" => Operator::Divide,
                 _ => unreachable!(),
             };
+            self.advance(); // Advance past the '*' or '/'
             let right = self.unary()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -620,14 +635,15 @@ impl Parser {
 
     // expects unary expression, which may include '!' or '-' operators
     fn unary(&mut self) -> Result<Expr, String> {
-        if self.match_token(&[TokenType::Operator])
-            && (self.previous().lexeme == "!" || self.previous().lexeme == "-")
+        if self.check(TokenType::Operator)
+            && (self.peek().unwrap().lexeme == "!" || self.peek().unwrap().lexeme == "-")
         {
-            let operator = match self.previous().lexeme.as_str() {
+            let operator = match self.peek().unwrap().lexeme.as_str() {
                 "!" => Operator::Not,
                 "-" => Operator::Subtract,
                 _ => unreachable!(),
             };
+            self.advance(); // Advance past the '!' or '-'
             let right = self.unary()?;
             return Ok(Expr::Unary(operator, Box::new(right)));
         }
@@ -639,12 +655,21 @@ impl Parser {
     fn call(&mut self) -> Result<Expr, String> {
         let mut expr = self.primary()?;
 
-        while self.match_token(&[TokenType::Punctuation]) {
-            let previous_token = self.previous().clone();
+        while self.check(TokenType::Punctuation) {
+            let previous_token = self.peek().unwrap().clone();
             match previous_token.lexeme.as_str() {
-                "(" => expr = self.finish_call(expr)?,
-                "." => expr = self.property_access(expr)?,
-                "[" => expr = self.index_access(expr)?,
+                "(" => {
+                    self.advance();
+                    expr = self.finish_call(expr)?
+                }
+                "." => {
+                    self.advance();
+                    expr = self.property_access(expr)?
+                }
+                "[" => {
+                    self.advance();
+                    expr = self.index_access(expr)?
+                }
                 _ => break,
             }
         }
@@ -658,9 +683,10 @@ impl Parser {
         if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != ")" {
             loop {
                 arguments.push(self.expression()?);
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
+                self.advance(); // Advance past the comma
             }
         }
         self.consume(TokenType::Punctuation, "Expect ')' after arguments.")
@@ -702,33 +728,34 @@ impl Parser {
 
     // expects literals, identifiers, or grouped expressions
     fn primary(&mut self) -> Result<Expr, String> {
-        if self.match_token(&[TokenType::Boolean]) {
+        if self.check(TokenType::Boolean) {
             return Ok(Expr::Literal(Literal::Boolean(
-                self.previous().lexeme == "true",
+                self.advance().lexeme == "true",
             )));
         }
 
-        if self.match_token(&[TokenType::Number]) {
+        if self.check(TokenType::Number) {
             return Ok(Expr::Literal(Literal::Number(
-                self.previous().lexeme.parse::<f64>().unwrap(),
+                self.advance().lexeme.parse::<f64>().unwrap(),
             )));
         }
 
-        if self.match_token(&[TokenType::StringLiteral]) {
+        if self.check(TokenType::StringLiteral) {
             return Ok(Expr::Literal(Literal::String(
-                self.previous().lexeme.clone(),
+                self.advance().lexeme.clone(),
             )));
         }
 
-        if self.match_token(&[TokenType::Null]) {
+        if self.check(TokenType::Null) {
             return Ok(Expr::Literal(Literal::Null));
         }
 
-        if self.match_token(&[TokenType::Identifier]) {
-            return Ok(Expr::Identifier(self.previous().lexeme.clone()));
+        if self.check(TokenType::Identifier) {
+            return Ok(Expr::Identifier(self.advance().lexeme.clone()));
         }
 
-        if self.match_token(&[TokenType::Punctuation]) && self.previous().lexeme == "(" {
+        if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == "(" {
+            self.advance(); // Advance past '('
             let expr = self.expression()?;
             self.consume(TokenType::Punctuation, "Expect ')' after expression.")
                 .and_then(|t| {
@@ -764,52 +791,103 @@ impl Parser {
 
     // expects any kind of statement, either declaration or expression
     fn declaration(&mut self) -> Result<Stmt, String> {
-        if self.match_token(&[TokenType::Keyword]) {
-            let keyword = self.previous().lexeme.as_str();
-            match keyword {
-                "def" => return self.function_declaration(),
-                "type" => return self.type_declaration(),
-                "class" => return self.class_declaration(),
-                "module" => return self.module_declaration(),
-                "macro" => return self.macro_definition(),
-                "ffi" => return self.foreign_function(),
-                "import" => return self.import_statement(),
-                "mut" => return self.variable_declaration(true),
-                _ => (),
+        println!("Declaration token peek test: {:#?}", self.peek());
+
+        if let Some(token) = self.peek() {
+            if token.token_type == TokenType::Keyword {
+                let keyword = token.lexeme.as_str();
+                match keyword {
+                    "def" => {
+                        self.advance();
+                        return self.function_declaration();
+                    }
+                    "type" => {
+                        self.advance();
+                        return self.type_declaration();
+                    }
+                    "class" => {
+                        self.advance();
+                        return self.class_declaration();
+                    }
+                    "module" => {
+                        self.advance();
+                        return self.module_declaration();
+                    }
+                    "macro" => {
+                        self.advance();
+                        return self.macro_definition();
+                    }
+                    "ffi" => {
+                        self.advance();
+                        return self.foreign_function();
+                    }
+                    "import" => {
+                        self.advance();
+                        return self.import_statement();
+                    }
+                    "mut" => {
+                        self.advance();
+                        return self.variable_declaration(true);
+                    }
+                    _ => (),
+                }
             }
         }
+
         self.statement()
     }
 
     // expects any kind of expression statement
     fn statement(&mut self) -> Result<Stmt, String> {
-        if self.match_token(&[TokenType::Keyword]) {
-            let keyword = self.previous().lexeme.as_str();
-            match keyword {
-                "print" => return self.print_statement(),
-                "if" => return self.if_statement(),
-                "while" => return self.while_statement(),
-                "for" => return self.for_statement(),
-                "return" => return self.return_statement(),
-                "break" => return Ok(Stmt::Break),
-                "continue" => return Ok(Stmt::Continue),
-                "go" => return self.go_statement(),
-                "schedule" => return self.schedule_statement(),
-                _ => (),
-            }
-        }
-        self.expression_statement()
-    }
+        println!("Statement token peek test: {:#?}", self.peek());
 
-    // checks if the next token matches one of the provided types and advances if true
-    fn match_token(&mut self, types: &[TokenType]) -> bool {
-        for &t in types {
-            if self.check(t) {
-                self.advance();
-                return true;
+        if let Some(token) = self.peek() {
+            if token.token_type == TokenType::Keyword {
+                let keyword = token.lexeme.as_str();
+
+                match keyword {
+                    "print" => {
+                        self.advance();
+                        return self.print_statement();
+                    }
+                    "if" => {
+                        self.advance();
+                        return self.if_statement();
+                    }
+                    "while" => {
+                        self.advance();
+                        return self.while_statement();
+                    }
+                    "for" => {
+                        self.advance();
+                        return self.for_statement();
+                    }
+                    "return" => {
+                        self.advance();
+                        return self.return_statement();
+                    }
+                    "break" => {
+                        self.advance();
+                        return Ok(Stmt::Break);
+                    }
+                    "continue" => {
+                        self.advance();
+                        return Ok(Stmt::Continue);
+                    }
+                    "go" => {
+                        self.advance();
+                        return self.go_statement();
+                    }
+                    "schedule" => {
+                        self.advance();
+                        return self.schedule_statement();
+                    }
+                    _ => (),
+                }
             }
         }
-        false
+
+        self.expression_statement()
     }
 
     // checks if the current token is of the given type
