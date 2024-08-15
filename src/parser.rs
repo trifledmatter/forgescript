@@ -1,3 +1,4 @@
+// parser.rs
 use crate::ast::{Expr, Literal, Operator, Stmt};
 use crate::token::{Token, TokenType};
 
@@ -19,59 +20,163 @@ impl Parser {
         Ok(statements)
     }
 
-    fn declaration(&mut self) -> Result<Stmt, String> {
-        if self.match_token(&[TokenType::Keyword]) {
-            let keyword = self.previous().lexeme.as_str();
-            match keyword {
-                "def" => return self.function_declaration(),
-                "type" => return self.type_declaration(),
-                "class" => return self.class_declaration(),
-                "module" => return self.module_declaration(),
-                "macro" => return self.macro_definition(),
-                "ffi" => return self.foreign_function(),
-                "import" => return self.import_statement(),
-                "mut" => return self.variable_declaration(true),
-                _ => (),
-            }
-        }
-        self.statement()
+    // expects expressions, usually starting with the lowest precedence operator
+    fn expression(&mut self) -> Result<Expr, String> {
+        self.assignment()
     }
 
-    fn statement(&mut self) -> Result<Stmt, String> {
-        if self.match_token(&[TokenType::Keyword]) {
-            let keyword = self.previous().lexeme.as_str();
-            match keyword {
-                "print" => return self.print_statement(),
-                "if" => return self.if_statement(),
-                "while" => return self.while_statement(),
-                "for" => return self.for_statement(),
-                "return" => return self.return_statement(),
-                "break" => return Ok(Stmt::Break),
-                "continue" => return Ok(Stmt::Continue),
-                "go" => return self.go_statement(),
-                "schedule" => return self.schedule_statement(),
-                _ => (),
-            }
+    // expects "module" keyword, module name, "do", declarations, "end"
+    fn module_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect module name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Keyword, "Expect 'do' after module name.")?;
+
+        let mut statements = Vec::new();
+        while !self.check(TokenType::Keyword) && !self.is_at_end() {
+            statements.push(Box::new(self.declaration()?));
         }
-        self.expression_statement()
+
+        self.consume(TokenType::Keyword, "Expect 'end' after module declaration.")?;
+
+        Ok(Stmt::Module(name_lexeme, statements))
     }
 
-    fn print_statement(&mut self) -> Result<Stmt, String> {
-        let value = self.expression()?;
-        self.consume(TokenType::Punctuation, "Expect ';' after value.")
+    // expects "def" keyword, function name, '(', parameter list, ')', '->', return type, "do", function body, "end"
+    fn function_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect function name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Punctuation, "Expect '(' after function name.")?;
+
+        let mut parameters = Vec::new();
+        if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != ")" {
+            loop {
+                let param_name = self.consume(TokenType::Identifier, "Expect parameter name.")?;
+                let param_name_lexeme = param_name.lexeme.clone();
+
+                self.consume(TokenType::Punctuation, "Expect ':' after parameter name.")?;
+
+                let param_type = self.consume(TokenType::Identifier, "Expect parameter type.")?;
+                parameters.push((param_name_lexeme, param_type.lexeme.clone()));
+
+                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
             .and_then(|t| {
-                if t.lexeme == ";" {
+                if t.lexeme == ")" {
                     Ok(t)
                 } else {
                     Err(format!(
-                        "Expected ';' but found '{}' at line {}, column {}",
+                        "Expected ')' but found '{}' at line {}, column {}",
                         t.lexeme, t.line, t.column
                     ))
                 }
             })?;
-        Ok(Stmt::Print(value))
+        self.consume(TokenType::Punctuation, "Expect '->' before return type.")
+            .and_then(|t| {
+                if t.lexeme == "->" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected '->' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+
+        let return_type = self.consume(TokenType::Identifier, "Expect return type.")?;
+        let return_type_lexeme = return_type.lexeme.clone();
+
+        self.consume(TokenType::Keyword, "Expect 'do' before function body.")?;
+
+        let body = self.block()?;
+
+        Ok(Stmt::FunctionDeclaration(
+            name_lexeme,
+            parameters,
+            return_type_lexeme,
+            body,
+        ))
     }
 
+    // expects "class" keyword, class name, "do", field declarations and/or methods, "end"
+    fn class_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect class name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Keyword, "Expect 'do' after class name.")?;
+
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+
+        while !self.check(TokenType::Keyword) && !self.is_at_end() {
+            if self.match_token(&[TokenType::Identifier]) {
+                let field_name = self.previous().lexeme.clone();
+
+                self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
+
+                let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
+                fields.push((field_name, field_type.lexeme.clone()));
+            } else if self.match_token(&[TokenType::Keyword]) && self.previous().lexeme == "def" {
+                methods.push(Box::new(self.function_declaration()?));
+            } else {
+                let peeked_token = self.peek().unwrap();
+                return Err(format!(
+                    "Unexpected token {} at line {}, column {}",
+                    peeked_token.lexeme, peeked_token.line, peeked_token.column
+                ));
+            }
+        }
+
+        self.consume(TokenType::Keyword, "Expect 'end' after class declaration.")?;
+
+        Ok(Stmt::ClassDeclaration(name_lexeme, fields, methods))
+    }
+
+    // expects "type" keyword, type name, "do", field declarations, "end"
+    fn type_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect type name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Keyword, "Expect 'do' after type name.")?;
+
+        let mut fields = Vec::new();
+        while !self.check(TokenType::Keyword) && !self.is_at_end() {
+            let field_name = self.consume(TokenType::Identifier, "Expect field name.")?;
+            let field_name_lexeme = field_name.lexeme.clone();
+
+            self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
+
+            let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
+            fields.push((field_name_lexeme, field_type.lexeme.clone()));
+
+            self.consume(
+                TokenType::Punctuation,
+                "Expect ',' or 'end' after field declaration.",
+            )
+            .and_then(|t| {
+                if t.lexeme == "," || t.lexeme == "end" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ',' or 'end' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+        }
+
+        self.consume(TokenType::Keyword, "Expect 'end' after type declaration.")?;
+
+        Ok(Stmt::TypeDeclaration(name_lexeme, fields))
+    }
+
+    // expects "if" keyword, condition expression, "do", then block, optionally "else" with "do" and else block, "end"
     fn if_statement(&mut self) -> Result<Stmt, String> {
         let condition = self.expression()?;
         self.consume(TokenType::Keyword, "Expect 'do' after condition.")
@@ -106,6 +211,7 @@ impl Parser {
         Ok(Stmt::If(condition, then_branch, else_branch))
     }
 
+    // expects "while" keyword, condition expression, "do", body block, "end"
     fn while_statement(&mut self) -> Result<Stmt, String> {
         let condition = self.expression()?;
         self.consume(TokenType::Keyword, "Expect 'do' after condition.")
@@ -123,6 +229,7 @@ impl Parser {
         Ok(Stmt::While(condition, body))
     }
 
+    // expects "for" keyword, loop variable, "in", start expression, "..", end expression, "do", body block, "end"
     fn for_statement(&mut self) -> Result<Stmt, String> {
         let variable = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let variable_lexeme = variable.lexeme.clone();
@@ -131,7 +238,17 @@ impl Parser {
 
         let start = self.expression()?;
 
-        self.consume(TokenType::Punctuation, "Expect '..' after start value.")?;
+        self.consume(TokenType::Punctuation, "Expect '..' after start value.")
+            .and_then(|t| {
+                if t.lexeme == ".." {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected '..' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
 
         let end = self.expression()?;
         self.consume(TokenType::Keyword, "Expect 'do' after range.")
@@ -150,6 +267,165 @@ impl Parser {
         Ok(Stmt::For(variable_lexeme, start, end, body))
     }
 
+    // expects "def" keyword, macro name, '(', parameter list, ')', "do", macro body, "end"
+    fn macro_definition(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect macro name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Punctuation, "Expect '(' after macro name.")?;
+
+        let mut parameters = Vec::new();
+        if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != ")" {
+            loop {
+                let param = self.consume(TokenType::Identifier, "Expect parameter name.")?;
+                parameters.push(param.lexeme.clone());
+                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+        self.consume(TokenType::Keyword, "Expect 'do' before macro body.")?;
+
+        let body = self.block()?;
+
+        Ok(Stmt::MacroDefinition(name_lexeme, parameters, body))
+    }
+
+    // expects "ffi" keyword, language string, "do", function declaration, "end"
+    fn foreign_function(&mut self) -> Result<Stmt, String> {
+        let language = self.consume(
+            TokenType::StringLiteral,
+            "Expect language identifier for FFI.",
+        )?;
+        let language_lexeme = language.lexeme.clone();
+
+        self.consume(TokenType::Keyword, "Expect 'do' after FFI language.")?;
+
+        let name = self.consume(TokenType::Identifier, "Expect function name.")?;
+        let name_lexeme = name.lexeme.clone();
+
+        self.consume(TokenType::Punctuation, "Expect '(' after function name.")?;
+
+        let mut parameters = Vec::new();
+        if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != ")" {
+            loop {
+                let param_name = self.consume(TokenType::Identifier, "Expect parameter name.")?;
+                let param_name_lexeme = param_name.lexeme.clone();
+
+                self.consume(TokenType::Punctuation, "Expect ':' after parameter name.")?;
+
+                let param_type = self.consume(TokenType::Identifier, "Expect parameter type.")?;
+                let param_type_lexeme = param_type.lexeme.clone();
+
+                parameters.push((param_name_lexeme, param_type_lexeme));
+
+                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
+            .and_then(|t| {
+                if t.lexeme == ")" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ')' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+        self.consume(
+            TokenType::Keyword,
+            "Expect 'end' after FFI function declaration.",
+        )?;
+
+        Ok(Stmt::ForeignFunction(
+            language_lexeme,
+            name_lexeme,
+            parameters,
+        ))
+    }
+
+    // expects "import" keyword, module name, ";"
+    fn import_statement(&mut self) -> Result<Stmt, String> {
+        let module_name =
+            self.consume(TokenType::StringLiteral, "Expect module name to import.")?;
+        let module_name_lexeme = module_name.lexeme.clone();
+        self.consume(TokenType::Punctuation, "Expect ';' after import statement.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+        Ok(Stmt::Import(module_name_lexeme))
+    }
+
+    // expects "mut" keyword (optional), variable name, "=", initializer expression, ";"
+    fn variable_declaration(&mut self, mutable: bool) -> Result<Stmt, String> {
+        let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?;
+        let name = name_token.lexeme.clone();
+
+        let mut initializer = None;
+        if self.match_token(&[TokenType::Operator]) {
+            if self.previous().lexeme == "=" {
+                initializer = Some(self.expression()?);
+            }
+        }
+
+        self.consume(
+            TokenType::Punctuation,
+            "Expect ';' after variable declaration.",
+        )
+        .and_then(|t| {
+            if t.lexeme == ";" {
+                Ok(t)
+            } else {
+                Err(format!(
+                    "Expected ';' but found '{}' at line {}, column {}",
+                    t.lexeme, t.line, t.column
+                ))
+            }
+        })?;
+        Ok(Stmt::VariableDeclaration(name, initializer, mutable))
+    }
+
+    // expects "print" keyword, expression, ";"
+    fn print_statement(&mut self) -> Result<Stmt, String> {
+        let value = self.expression()?;
+        self.consume(TokenType::Punctuation, "Expect ';' after value.")
+            .and_then(|t| {
+                if t.lexeme == ";" {
+                    Ok(t)
+                } else {
+                    Err(format!(
+                        "Expected ';' but found '{}' at line {}, column {}",
+                        t.lexeme, t.line, t.column
+                    ))
+                }
+            })?;
+        Ok(Stmt::Print(value))
+    }
+
+    // expects "return" keyword, optional expression, ";"
     fn return_statement(&mut self) -> Result<Stmt, String> {
         let expr = if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == ";" {
             None
@@ -170,11 +446,13 @@ impl Parser {
         Ok(Stmt::Return(expr))
     }
 
+    // expects "go" keyword, statement
     fn go_statement(&mut self) -> Result<Stmt, String> {
         let stmt = self.statement()?;
         Ok(Stmt::Go(Box::new(stmt)))
     }
 
+    // expects "schedule" keyword, statement, "every:", interval string
     fn schedule_statement(&mut self) -> Result<Stmt, String> {
         let stmt = self.statement()?;
         let interval = self.consume(
@@ -184,6 +462,7 @@ impl Parser {
         Ok(Stmt::Schedule(Box::new(stmt), interval.lexeme.clone()))
     }
 
+    // expects expression, ";"
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
         self.consume(TokenType::Punctuation, "Expect ';' after expression.")
@@ -200,10 +479,7 @@ impl Parser {
         Ok(Stmt::Expression(expr))
     }
 
-    fn expression(&mut self) -> Result<Expr, String> {
-        self.assignment()
-    }
-
+    // expects assignment expression, which may include a variable or property access, followed by '=' and a value expression
     fn assignment(&mut self) -> Result<Expr, String> {
         let expr = self.or()?;
 
@@ -235,6 +511,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects logical OR expression, which may include '||' operators
     fn or(&mut self) -> Result<Expr, String> {
         let mut expr = self.and()?;
 
@@ -247,6 +524,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects logical AND expression, which may include '&&' operators
     fn and(&mut self) -> Result<Expr, String> {
         let mut expr = self.equality()?;
 
@@ -259,6 +537,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects equality expression, which may include '==' or '!=' operators
     fn equality(&mut self) -> Result<Expr, String> {
         let mut expr = self.comparison()?;
 
@@ -277,6 +556,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects comparison expression, which may include '<', '<=', '>', '>=' operators
     fn comparison(&mut self) -> Result<Expr, String> {
         let mut expr = self.term()?;
 
@@ -300,6 +580,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects term expression, which may include '+' or '-' operators
     fn term(&mut self) -> Result<Expr, String> {
         let mut expr = self.factor()?;
 
@@ -318,6 +599,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects factor expression, which may include '*' or '/' operators
     fn factor(&mut self) -> Result<Expr, String> {
         let mut expr = self.unary()?;
 
@@ -336,6 +618,7 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects unary expression, which may include '!' or '-' operators
     fn unary(&mut self) -> Result<Expr, String> {
         if self.match_token(&[TokenType::Operator])
             && (self.previous().lexeme == "!" || self.previous().lexeme == "-")
@@ -352,6 +635,7 @@ impl Parser {
         self.call()
     }
 
+    // expects call expression, which may include function calls, property access, or index access
     fn call(&mut self) -> Result<Expr, String> {
         let mut expr = self.primary()?;
 
@@ -368,9 +652,10 @@ impl Parser {
         Ok(expr)
     }
 
+    // expects function call arguments, followed by ')'
     fn finish_call(&mut self, callee: Expr) -> Result<Expr, String> {
         let mut arguments = Vec::new();
-        if !self.check(TokenType::Punctuation) {
+        if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != ")" {
             loop {
                 arguments.push(self.expression()?);
                 if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
@@ -392,11 +677,13 @@ impl Parser {
         Ok(Expr::FunctionCall(callee.to_string(), arguments))
     }
 
+    // expects '.' followed by property name
     fn property_access(&mut self, object: Expr) -> Result<Expr, String> {
         let name = self.consume(TokenType::Identifier, "Expect property name after '.'.")?;
         Ok(Expr::PropertyAccess(Box::new(object), name.lexeme.clone()))
     }
 
+    // expects '[' followed by index expression and ']'
     fn index_access(&mut self, object: Expr) -> Result<Expr, String> {
         let index = self.expression()?;
         self.consume(TokenType::Punctuation, "Expect ']' after index.")
@@ -413,6 +700,7 @@ impl Parser {
         Ok(Expr::Index(Box::new(object), Box::new(index)))
     }
 
+    // expects literals, identifiers, or grouped expressions
     fn primary(&mut self) -> Result<Expr, String> {
         if self.match_token(&[TokenType::Boolean]) {
             return Ok(Expr::Literal(Literal::Boolean(
@@ -464,6 +752,7 @@ impl Parser {
         ))
     }
 
+    // expects a block of statements, ending with "end"
     fn block(&mut self) -> Result<Vec<Box<Stmt>>, String> {
         let mut statements = Vec::new();
         while !self.check(TokenType::Keyword) && !self.is_at_end() {
@@ -473,263 +762,46 @@ impl Parser {
         Ok(statements)
     }
 
-    fn function_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect function name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Punctuation, "Expect '(' after function name.")?;
-
-        let mut parameters = Vec::new();
-        if !self.check(TokenType::Punctuation) {
-            loop {
-                let param_name = self.consume(TokenType::Identifier, "Expect parameter name.")?;
-                let param_name_lexeme = param_name.lexeme.clone();
-
-                self.consume(TokenType::Punctuation, "Expect ':' after parameter name.")?;
-
-                let param_type = self.consume(TokenType::Identifier, "Expect parameter type.")?;
-                parameters.push((param_name_lexeme, param_type.lexeme.clone()));
-
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
-                    break;
-                }
+    // expects any kind of statement, either declaration or expression
+    fn declaration(&mut self) -> Result<Stmt, String> {
+        if self.match_token(&[TokenType::Keyword]) {
+            let keyword = self.previous().lexeme.as_str();
+            match keyword {
+                "def" => return self.function_declaration(),
+                "type" => return self.type_declaration(),
+                "class" => return self.class_declaration(),
+                "module" => return self.module_declaration(),
+                "macro" => return self.macro_definition(),
+                "ffi" => return self.foreign_function(),
+                "import" => return self.import_statement(),
+                "mut" => return self.variable_declaration(true),
+                _ => (),
             }
         }
-
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
-            .and_then(|t| {
-                if t.lexeme == ")" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ')' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
-        self.consume(TokenType::Punctuation, "Expect '->' before return type.")?;
-
-        let return_type = self.consume(TokenType::Identifier, "Expect return type.")?;
-        let return_type_lexeme = return_type.lexeme.clone();
-
-        self.consume(TokenType::Keyword, "Expect 'do' before function body.")?;
-
-        let body = self.block()?;
-
-        Ok(Stmt::FunctionDeclaration(
-            name_lexeme,
-            parameters,
-            return_type_lexeme,
-            body,
-        ))
+        self.statement()
     }
 
-    fn type_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect type name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Keyword, "Expect 'do' after type name.")?;
-
-        let mut fields = Vec::new();
-        while !self.check(TokenType::Keyword) && !self.is_at_end() {
-            let field_name = self.consume(TokenType::Identifier, "Expect field name.")?;
-            let field_name_lexeme = field_name.lexeme.clone();
-
-            self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
-
-            let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
-            fields.push((field_name_lexeme, field_type.lexeme.clone()));
-        }
-
-        self.consume(TokenType::Keyword, "Expect 'end' after type declaration.")?;
-
-        Ok(Stmt::TypeDeclaration(name_lexeme, fields))
-    }
-
-    fn class_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect class name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Keyword, "Expect 'do' after class name.")?;
-
-        let mut fields = Vec::new();
-        let mut methods = Vec::new();
-
-        while !self.check(TokenType::Keyword) && !self.is_at_end() {
-            if self.match_token(&[TokenType::Identifier]) {
-                let field_name = self.previous().lexeme.clone();
-
-                self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
-
-                let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
-                fields.push((field_name, field_type.lexeme.clone()));
-            } else if self.match_token(&[TokenType::Keyword]) && self.previous().lexeme == "def" {
-                methods.push(Box::new(self.function_declaration()?));
-            } else {
-                let peeked_token = self.peek().unwrap();
-                return Err(format!(
-                    "Unexpected token {} at line {}, column {}",
-                    peeked_token.lexeme, peeked_token.line, peeked_token.column
-                ));
+    // expects any kind of expression statement
+    fn statement(&mut self) -> Result<Stmt, String> {
+        if self.match_token(&[TokenType::Keyword]) {
+            let keyword = self.previous().lexeme.as_str();
+            match keyword {
+                "print" => return self.print_statement(),
+                "if" => return self.if_statement(),
+                "while" => return self.while_statement(),
+                "for" => return self.for_statement(),
+                "return" => return self.return_statement(),
+                "break" => return Ok(Stmt::Break),
+                "continue" => return Ok(Stmt::Continue),
+                "go" => return self.go_statement(),
+                "schedule" => return self.schedule_statement(),
+                _ => (),
             }
         }
-
-        self.consume(TokenType::Keyword, "Expect 'end' after class declaration.")?;
-
-        Ok(Stmt::ClassDeclaration(name_lexeme, fields, methods))
+        self.expression_statement()
     }
 
-    fn module_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect module name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Keyword, "Expect 'do' after module name.")?;
-
-        let mut statements = Vec::new();
-        while !self.check(TokenType::Keyword) && !self.is_at_end() {
-            statements.push(Box::new(self.declaration()?));
-        }
-
-        self.consume(TokenType::Keyword, "Expect 'end' after module declaration.")?;
-
-        Ok(Stmt::Module(name_lexeme, statements))
-    }
-
-    fn macro_definition(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect macro name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Punctuation, "Expect '(' after macro name.")?;
-
-        let mut parameters = Vec::new();
-        if !self.check(TokenType::Punctuation) {
-            loop {
-                let param = self.consume(TokenType::Identifier, "Expect parameter name.")?;
-                parameters.push(param.lexeme.clone());
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
-                    break;
-                }
-            }
-        }
-
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
-            .and_then(|t| {
-                if t.lexeme == ")" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ')' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
-        self.consume(TokenType::Keyword, "Expect 'do' before macro body.")?;
-
-        let body = self.block()?;
-
-        Ok(Stmt::MacroDefinition(name_lexeme, parameters, body))
-    }
-
-    fn foreign_function(&mut self) -> Result<Stmt, String> {
-        let language = self.consume(
-            TokenType::StringLiteral,
-            "Expect language identifier for FFI.",
-        )?;
-        let language_lexeme = language.lexeme.clone();
-
-        let name = self.consume(TokenType::Identifier, "Expect function name.")?;
-        let name_lexeme = name.lexeme.clone();
-
-        self.consume(TokenType::Punctuation, "Expect '(' after function name.")?;
-
-        let mut parameters = Vec::new();
-        if !self.check(TokenType::Punctuation) {
-            loop {
-                let param_name = self.consume(TokenType::Identifier, "Expect parameter name.")?;
-                let param_name_lexeme = param_name.lexeme.clone();
-
-                self.consume(TokenType::Punctuation, "Expect ':' after parameter name.")?;
-
-                let param_type = self.consume(TokenType::Identifier, "Expect parameter type.")?;
-                let param_type_lexeme = param_type.lexeme.clone();
-
-                parameters.push((param_name_lexeme, param_type_lexeme));
-
-                if !self.match_token(&[TokenType::Punctuation]) || self.previous().lexeme != "," {
-                    break;
-                }
-            }
-        }
-
-        self.consume(TokenType::Punctuation, "Expect ')' after parameters.")
-            .and_then(|t| {
-                if t.lexeme == ")" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ')' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
-        self.consume(
-            TokenType::Keyword,
-            "Expect 'end' after FFI function declaration.",
-        )?;
-
-        Ok(Stmt::ForeignFunction(
-            language_lexeme,
-            name_lexeme,
-            parameters,
-        ))
-    }
-
-    fn import_statement(&mut self) -> Result<Stmt, String> {
-        let module_name =
-            self.consume(TokenType::StringLiteral, "Expect module name to import.")?;
-        let module_name_lexeme = module_name.lexeme.clone();
-        self.consume(TokenType::Punctuation, "Expect ';' after import statement.")
-            .and_then(|t| {
-                if t.lexeme == ";" {
-                    Ok(t)
-                } else {
-                    Err(format!(
-                        "Expected ';' but found '{}' at line {}, column {}",
-                        t.lexeme, t.line, t.column
-                    ))
-                }
-            })?;
-        Ok(Stmt::Import(module_name_lexeme))
-    }
-
-    fn variable_declaration(&mut self, mutable: bool) -> Result<Stmt, String> {
-        let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?;
-        let name = name_token.lexeme.clone();
-
-        let mut initializer = None;
-        if self.match_token(&[TokenType::Operator]) {
-            if self.previous().lexeme == "=" {
-                initializer = Some(self.expression()?);
-            }
-        }
-
-        self.consume(
-            TokenType::Punctuation,
-            "Expect ';' after variable declaration.",
-        )
-        .and_then(|t| {
-            if t.lexeme == ";" {
-                Ok(t)
-            } else {
-                Err(format!(
-                    "Expected ';' but found '{}' at line {}, column {}",
-                    t.lexeme, t.line, t.column
-                ))
-            }
-        })?;
-        Ok(Stmt::VariableDeclaration(name, initializer, mutable))
-    }
-
+    // checks if the next token matches one of the provided types and advances if true
     fn match_token(&mut self, types: &[TokenType]) -> bool {
         for &t in types {
             if self.check(t) {
@@ -740,6 +812,7 @@ impl Parser {
         false
     }
 
+    // checks if the current token is of the given type
     fn check(&self, token_type: TokenType) -> bool {
         if self.is_at_end() {
             return false;
@@ -747,6 +820,7 @@ impl Parser {
         self.peek().unwrap().token_type == token_type
     }
 
+    // advances to the next token and returns the previous token
     fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.current += 1;
@@ -754,18 +828,22 @@ impl Parser {
         self.previous()
     }
 
+    // checks if the current token is the end of file
     fn is_at_end(&self) -> bool {
         self.peek().unwrap().token_type == TokenType::Eof
     }
 
+    // returns the current token without advancing
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.current)
     }
 
+    // returns the previous token
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
 
+    // checks if the next token is of the given type and advances if true, otherwise returns an error
     fn consume(&mut self, token_type: TokenType, message: &str) -> Result<&Token, String> {
         if self.check(token_type) {
             return Ok(self.advance());
