@@ -406,9 +406,7 @@ impl Parser {
 
     // expects "print" keyword, expression, ";"
     fn print_statement(&mut self) -> Result<Stmt, String> {
-        println!("Print statement peek before: {:#?}", self.peek());
         let value = self.expression()?;
-        println!("Print statement peek after: {:#?}", self.peek());
 
         self.consume(TokenType::Punctuation, "Expect ';' after value.")
             .and_then(|t| {
@@ -463,11 +461,7 @@ impl Parser {
 
     // expects expression, ";"
     fn expression_statement(&mut self) -> Result<Stmt, String> {
-        println!("Before expr: {:#?}", self.peek());
-
         let expr = self.expression()?;
-
-        println!("After expr: {:#?}", self.peek());
 
         if self.peek().map(|t| t.token_type) != Some(TokenType::Punctuation) {
             return Err(format!(
@@ -484,11 +478,7 @@ impl Parser {
 
     // expects assignment expression, which may include a variable or property access, followed by '=' and a value expression
     fn assignment(&mut self) -> Result<Expr, String> {
-        println!("Before or expr: {:#?}", self.peek());
-
         let expr = self.or()?;
-
-        println!("After or expr: {:#?}", self.peek());
 
         if self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "=" {
             self.advance();
@@ -790,8 +780,6 @@ impl Parser {
 
     // expects any kind of statement, either declaration or expression
     fn declaration(&mut self) -> Result<Stmt, String> {
-        println!("Declaration token peek test: {:#?}", self.peek());
-
         if let Some(token) = self.peek() {
             if token.token_type == TokenType::Keyword {
                 let keyword = token.lexeme.as_str();
@@ -838,8 +826,6 @@ impl Parser {
 
     // expects any kind of expression statement
     fn statement(&mut self) -> Result<Stmt, String> {
-        println!("Statement token peek test: {:#?}", self.peek());
-
         if let Some(token) = self.peek() {
             if token.token_type == TokenType::Keyword {
                 let keyword = token.lexeme.as_str();
