@@ -1,4 +1,3 @@
-// parser.rs
 use crate::ast::{Expr, Literal, Operator, Stmt};
 use crate::token::{Token, TokenType};
 
@@ -63,7 +62,7 @@ impl Parser {
                 if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
-                self.advance(); // Advance past the comma
+                self.advance();
             }
         }
 
@@ -163,7 +162,7 @@ impl Parser {
             if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                 break;
             }
-            self.advance(); // Advance past the comma
+            self.advance();
         }
 
         self.consume(TokenType::Keyword, "Expect 'end' after type declaration.")?;
@@ -189,7 +188,7 @@ impl Parser {
         let mut else_branch = None;
 
         if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "else" {
-            self.advance(); // Advance past 'else'
+            self.advance();
             self.consume(TokenType::Keyword, "Expect 'do' after 'else'.")
                 .and_then(|t| {
                     if t.lexeme == "do" {
@@ -278,7 +277,7 @@ impl Parser {
                 if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
-                self.advance(); // Advance past the comma
+                self.advance();
             }
         }
 
@@ -331,7 +330,7 @@ impl Parser {
                 if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
-                self.advance(); // Advance past the comma
+                self.advance();
             }
         }
 
@@ -473,13 +472,13 @@ impl Parser {
         if self.peek().map(|t| t.token_type) != Some(TokenType::Punctuation) {
             return Err(format!(
                 "Expected ';' after expression but found {:?} at line {}, column {}",
-                self.peek().unwrap().token_type, // Current token
+                self.peek().unwrap().token_type,
                 self.peek().unwrap().line,
                 self.peek().unwrap().column,
             ));
         }
 
-        self.consume(TokenType::Punctuation, "Expect ';' after expression.")?; // Now consume the semicolon
+        self.consume(TokenType::Punctuation, "Expect ';' after expression.")?;
         Ok(Stmt::Expression(expr))
     }
 
@@ -492,7 +491,7 @@ impl Parser {
         println!("After or expr: {:#?}", self.peek());
 
         if self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "=" {
-            self.advance(); // Advance past the '='
+            self.advance();
             let equals = self.previous().clone();
             let value = self.assignment()?;
             match expr {
@@ -525,7 +524,7 @@ impl Parser {
         let mut expr = self.and()?;
 
         while self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "||" {
-            self.advance(); // Advance past the '||'
+            self.advance();
             let operator = Operator::Or;
             let right = self.and()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
@@ -539,7 +538,7 @@ impl Parser {
         let mut expr = self.equality()?;
 
         while self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "&&" {
-            self.advance(); // Advance past the '&&'
+            self.advance();
             let operator = Operator::And;
             let right = self.equality()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
@@ -585,7 +584,7 @@ impl Parser {
                 ">=" => Operator::GreaterEqual,
                 _ => unreachable!(),
             };
-            self.advance(); // Advance past the comparison operator
+            self.advance();
             let right = self.term()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -605,8 +604,8 @@ impl Parser {
                 "-" => Operator::Subtract,
                 _ => unreachable!(),
             };
-            self.advance(); // Advance past the '+' or '-'
-            let right = self.factor()?; // Handle operator precedence correctly
+            self.advance();
+            let right = self.factor()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
 
@@ -625,7 +624,7 @@ impl Parser {
                 "/" => Operator::Divide,
                 _ => unreachable!(),
             };
-            self.advance(); // Advance past the '*' or '/'
+            self.advance();
             let right = self.unary()?;
             expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
@@ -643,7 +642,7 @@ impl Parser {
                 "-" => Operator::Subtract,
                 _ => unreachable!(),
             };
-            self.advance(); // Advance past the '!' or '-'
+            self.advance();
             let right = self.unary()?;
             return Ok(Expr::Unary(operator, Box::new(right)));
         }
@@ -686,7 +685,7 @@ impl Parser {
                 if !self.check(TokenType::Punctuation) || self.peek().unwrap().lexeme != "," {
                     break;
                 }
-                self.advance(); // Advance past the comma
+                self.advance();
             }
         }
         self.consume(TokenType::Punctuation, "Expect ')' after arguments.")
@@ -755,7 +754,7 @@ impl Parser {
         }
 
         if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == "(" {
-            self.advance(); // Advance past '('
+            self.advance();
             let expr = self.expression()?;
             self.consume(TokenType::Punctuation, "Expect ')' after expression.")
                 .and_then(|t| {
