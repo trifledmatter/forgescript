@@ -513,12 +513,20 @@ impl Parser {
         println!("{:#?}", stmt);
         println!("{:#?}", self.peek());
 
-        let every_token = self.consume(TokenType::Identifier, "Expect 'every' definition after schedule")?;
+        let every_token = self.consume(
+            TokenType::Identifier,
+            "Expect 'every' definition after schedule",
+        )?;
 
         if !(every_token.lexeme == "every" && self.peek().unwrap().lexeme == ":") {
-            return Err(format!("Expected 'every:' but found '{}' at line {}, column {}", self.peek().unwrap().lexeme, self.peek().unwrap().line, self.peek().unwrap().column));
+            return Err(format!(
+                "Expected 'every:' but found '{}' at line {}, column {}",
+                self.peek().unwrap().lexeme,
+                self.peek().unwrap().line,
+                self.peek().unwrap().column
+            ));
         }
-        
+
         self.advance(); // consume ':'
 
         let interval = self.consume(
@@ -999,8 +1007,10 @@ impl Parser {
             return Ok(self.advance());
         }
         Err(format!(
-            "{} at line {}, column {}",
+            "{}: Expected {:?} but found {:?} at line {}, column {}",
             message,
+            token_type,
+            self.peek().unwrap().token_type,
             self.peek().unwrap().line,
             self.peek().unwrap().column
         ))
