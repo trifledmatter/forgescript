@@ -68,7 +68,7 @@ impl Lexer {
                     let token = self.number(start_column)?;
                     tokens.push(token);
                 }
-                '"' => {
+                '"' | '\'' => {
                     let token = self.string_literal(start_column)?;
                     tokens.push(token);
                 }
@@ -181,8 +181,10 @@ impl Lexer {
     }
 
     fn string_literal(&mut self, start_column: usize) -> Result<Token, String> {
-        let start = self.current;
-        while !self.is_at_end() && self.peek() != Some('"') {
+        let start = self.current - 1;
+        let quote = self.source[self.current - 1]; // get opening quote
+
+        while !self.is_at_end() && self.peek() != Some(quote) {
             if self.peek() == Some('\n') {
                 return Err(format!(
                     "unterminated string at line {}, column {}",
@@ -199,8 +201,8 @@ impl Lexer {
             ));
         }
 
-        self.advance(); // consume the closing quote
-        let lexeme: String = self.source[start..self.current - 1].iter().collect(); // exclude quotes
+        self.advance(); // consume closing quote
+        let lexeme: String = self.source[(start + 1)..(self.current - 1)].iter().collect();
         Ok(Token::new(
             TokenType::StringLiteral,
             lexeme,

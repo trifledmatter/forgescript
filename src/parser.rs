@@ -107,7 +107,6 @@ impl Parser {
         ))
     }
 
-
     fn next_token_is_function_declaration(&self) -> bool {
         if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "def" {
             return true;
@@ -133,17 +132,17 @@ impl Parser {
 
         /*
          *  Iterate until a matching end token.
-         * 
+         *
          *  Even if there are function blocks that declare 'end' in the class,
          *  this works because self.function_declaration() already consumes that end
          *  token for us, so the next end token in theory should be the one to close the
-         *  class' scope. 
+         *  class' scope.
          */
 
         while !(self.peek().unwrap().lexeme == "end") {
             if self.next_token_is_function_declaration() {
                 self.advance();
-                methods.push(Box::new(self.function_declaration()?)); 
+                methods.push(Box::new(self.function_declaration()?));
             } else if self.check(TokenType::Identifier) {
                 // we're parsing a field
                 let field_name = self
@@ -510,6 +509,18 @@ impl Parser {
     // expects "schedule" keyword, statement, "every:", interval string
     fn schedule_statement(&mut self) -> Result<Stmt, String> {
         let stmt = self.statement()?;
+
+        println!("{:#?}", stmt);
+        println!("{:#?}", self.peek());
+
+        let every_token = self.consume(TokenType::Identifier, "Expect 'every' definition after schedule")?;
+
+        if !(every_token.lexeme == "every" && self.peek().unwrap().lexeme == ":") {
+            return Err(format!("Expected 'every:' but found '{}' at line {}, column {}", self.peek().unwrap().lexeme, self.peek().unwrap().line, self.peek().unwrap().column));
+        }
+        
+        self.advance(); // consume ':'
+
         let interval = self.consume(
             TokenType::StringLiteral,
             "Expect string interval after schedule.",
@@ -521,7 +532,7 @@ impl Parser {
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
 
-        println!("{:#?}", self.peek());
+        // println!("{:#?}", self.peek());
         if self.peek().map(|t| t.token_type) != Some(TokenType::Punctuation) {
             return Err(format!(
                 "Expected ';' after expression but found {:?} at line {}, column {}",
@@ -1145,7 +1156,7 @@ mod tests {
             class Animal do
                 name: string,
                 def speak() -> string do
-                    return \"...\";
+                    return '...';
                 end
             end";
         let statements = parse_input(input);
@@ -1180,7 +1191,7 @@ mod tests {
         let statements = parse_input(input);
         assert_eq!(statements.len(), 1);
         if let Stmt::Schedule(stmt, interval) = &statements[0] {
-            assert_eq!(interval, "\"24h\"");
+            assert_eq!(interval, "24h");
             if let Stmt::Print(Expr::Literal(Literal::Number(value))) = &**stmt {
                 assert_eq!(*value, 42.0);
             } else {
@@ -1195,7 +1206,7 @@ mod tests {
     fn test_macro_definition() {
         let input = "
             macro log_call(fn) do
-                print \"Calling #{fn}\";
+                print 'Calling #{fn}';
                 fn();
             end";
         let statements = parse_input(input);
@@ -1206,7 +1217,7 @@ mod tests {
             assert_eq!(params[0], "fn");
             assert_eq!(body.len(), 2);
             if let Stmt::Print(Expr::Literal(Literal::String(value))) = &*body[0] {
-                assert_eq!(value, "\"Calling #{fn}\"");
+                assert_eq!(value, "Calling #{fn}");
             } else {
                 panic!("Expected print statement in macro body");
             }
