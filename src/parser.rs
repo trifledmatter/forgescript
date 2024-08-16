@@ -77,6 +77,9 @@ impl Parser {
                     ))
                 }
             })?;
+
+        println!("{:#?}", self.peek()); // ensure the lexer is working properly and returning -> as a lexeme and not - 
+
         self.consume(TokenType::Punctuation, "Expect '->' before return type.")
             .and_then(|t| {
                 if t.lexeme == "->" {
@@ -124,12 +127,21 @@ impl Parser {
                 self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
 
                 let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
+                
                 fields.push((field_name, field_type.lexeme.clone()));
+
+                if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == "," {
+                    self.advance(); // we'll consume the comma
+                } else {
+                    break; // there wasn't a comma to begin with
+                }
+
             } else if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "def" {
                 self.advance();
                 methods.push(Box::new(self.function_declaration()?));
             } else {
                 let peeked_token = self.peek().unwrap();
+                // println!("{:#?}", peeked_token.token_type); // This returns punctuation for comma (,) so it's recognized.
                 return Err(format!(
                     "Unexpected token {} at line {}, column {}",
                     peeked_token.lexeme, peeked_token.line, peeked_token.column
@@ -226,6 +238,7 @@ impl Parser {
 
     // expects "for" keyword, loop variable, "in", start expression, "..", end expression, "do", body block, "end"
     fn for_statement(&mut self) -> Result<Stmt, String> {
+        // for is already consumed by this point
         let variable = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let variable_lexeme = variable.lexeme.clone();
 
@@ -760,6 +773,17 @@ impl Parser {
             return Ok(Expr::Group(Box::new(expr)));
         }
 
+        println!("{:#?}", self.peek());
+
+        if self.peek().unwrap().token_type == TokenType::Eof {
+            return Err(format!(
+                "Unexpected EOF on line {}, column {}. 'y{}' Did you forget to close a block with 'end'?",
+                self.peek().unwrap().line,
+                self.peek().unwrap().column,
+                self.peek().unwrap().line_content,
+            ));
+        }
+
         Err(format!(
             "Unexpected token {} at line {}, column {}",
             self.peek().unwrap().lexeme,
@@ -771,12 +795,19 @@ impl Parser {
     // expects a block of statements, ending with "end"
     fn block(&mut self) -> Result<Vec<Box<Stmt>>, String> {
         let mut statements = Vec::new();
-        while !self.check(TokenType::Keyword) && !self.is_at_end() {
+    
+        while let Some(token) = self.peek() {
+            if token.token_type == TokenType::Keyword && token.lexeme == "end" {
+                break;
+            }
+    
             statements.push(Box::new(self.statement()?));
         }
+    
         self.consume(TokenType::Keyword, "Expect 'end' after block.")?;
         Ok(statements)
     }
+    
 
     // expects any kind of statement, either declaration or expression
     fn declaration(&mut self) -> Result<Stmt, String> {
@@ -930,7 +961,7 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
 
-        let debug_print_tokens = true;
+        let debug_print_tokens = false;
 
         if debug_print_tokens {
             println!();

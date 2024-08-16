@@ -17,6 +17,7 @@ impl Lexer {
         keywords.insert("elif".to_string(), TokenType::Keyword);
         keywords.insert("while".to_string(), TokenType::Keyword);
         keywords.insert("for".to_string(), TokenType::Keyword);
+        keywords.insert("in".to_string(), TokenType::Keyword);
         keywords.insert("do".to_string(), TokenType::Keyword);
         keywords.insert("end".to_string(), TokenType::Keyword);
         keywords.insert("def".to_string(), TokenType::Keyword);
@@ -90,13 +91,24 @@ impl Lexer {
                     }
                 }
                 '(' | ')' | '{' | '}' | '[' | ']' | ',' | '.' | ';' | ':' => {
-                    tokens.push(Token::new(
-                        TokenType::Punctuation,
-                        c.to_string(),
-                        self.line,
-                        start_column,
-                        self.current_line(),
-                    ));
+                    if c == '.' && self.peek() == Some('.') {
+                        self.advance();
+                        tokens.push(Token::new(
+                            TokenType::Punctuation,
+                            "..".to_string(),
+                            self.line,
+                            start_column,
+                            self.current_line(),
+                        ));
+                    } else {
+                        tokens.push(Token::new(
+                            TokenType::Punctuation,
+                            c.to_string(),
+                            self.line,
+                            start_column,
+                            self.current_line(),
+                        ));
+                    }
                 }
                 '\n' => {
                     self.line += 1;
@@ -201,21 +213,18 @@ impl Lexer {
     fn operator(&mut self, first_char: char, start_column: usize) -> Token {
         let mut lexeme = first_char.to_string();
 
+        let two_char_operators = vec!["!=", "==", "<=", ">=", "&&", "||", "<<", ">>", "|>", "->"];
+
         if let Some(next_char) = self.peek() {
-            match (first_char, next_char) {
-                ('!', '=')
-                | ('=', '=')
-                | ('<', '=')
-                | ('>', '=')
-                | ('&', '&')
-                | ('|', '|')
-                | ('<', '<')
-                | ('>', '>') => {
-                    lexeme.push(self.advance().unwrap());
-                }
-                _ => {}
+            lexeme.push(next_char);
+            if two_char_operators.contains(&lexeme.as_str()) {
+                self.advance();
+            } else {
+                lexeme.pop();
             }
         }
+
+        // println!("{:?}", lexeme);
 
         Token::new(
             TokenType::Operator,
@@ -370,11 +379,13 @@ mod tests {
 
     #[test]
     fn test_operators() {
-        let source = "+ - * / == != < > <= >= && || & | ^ ~ << >> |>";
+        let source = "<= >= && || == != << >> |> -> + - * / < > & | ^ ~";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
 
         let expected = vec![
+            TokenType::Operator,
+            TokenType::Operator,
             TokenType::Operator,
             TokenType::Operator,
             TokenType::Operator,
