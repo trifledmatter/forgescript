@@ -73,7 +73,7 @@ pub enum Stmt {
     Go(Box<Stmt>), // concurrency
     Schedule(Box<Stmt>, String), // scheduling (statement, interval)
     MacroDefinition(String, Vec<String>, Vec<Box<Stmt>>),
-    ForeignFunction(String, String, Vec<(String, String)>), // ffi: (language, name, params)
+    ForeignFunction(String, String, Vec<(String, String)>, String), // ffi: (language, name, params, return type)
 }
 
 
@@ -270,7 +270,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "end")
             }
-            Stmt::ForeignFunction(lang, name, params) => {
+            Stmt::ForeignFunction(lang, name, params, return_type) => {
                 write!(f, "ffi \"{}\" do\n", lang)?;
                 write!(f, "def {}(", name)?;
                 for (i, (param, typ)) in params.iter().enumerate() {
@@ -279,7 +279,7 @@ impl fmt::Display for Stmt {
                         write!(f, ", ")?;
                     }
                 }
-                write!(f, ") end\nend")
+                write!(f, ") -> {} end\nend", return_type)
             }
         }
     }

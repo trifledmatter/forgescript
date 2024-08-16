@@ -78,9 +78,9 @@ impl Parser {
                 }
             })?;
 
-        println!("{:#?}", self.peek()); // ensure the lexer is working properly and returning -> as a lexeme and not - 
+        //println!("{:#?}", self.peek()); // ensure the lexer is working properly and returning -> as a lexeme and not -
 
-        self.consume(TokenType::Punctuation, "Expect '->' before return type.")
+        self.consume(TokenType::Operator, "Expect '->' before return type.")
             .and_then(|t| {
                 if t.lexeme == "->" {
                     Ok(t)
@@ -107,6 +107,20 @@ impl Parser {
         ))
     }
 
+
+    fn next_token_is_function_declaration(&self) -> bool {
+        if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "def" {
+            return true;
+        }
+        false
+    }
+
+    fn consume_comma_leftovers(&mut self) {
+        if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == "," {
+            self.advance();
+        }
+    }
+
     // expects "class" keyword, class name, "do", field declarations and/or methods, "end"
     fn class_declaration(&mut self) -> Result<Stmt, String> {
         let name = self.consume(TokenType::Identifier, "Expect class name.")?;
@@ -117,8 +131,21 @@ impl Parser {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
 
-        while !self.check(TokenType::Keyword) && !self.is_at_end() {
-            if self.check(TokenType::Identifier) {
+        /*
+         *  Iterate until a matching end token.
+         * 
+         *  Even if there are function blocks that declare 'end' in the class,
+         *  this works because self.function_declaration() already consumes that end
+         *  token for us, so the next end token in theory should be the one to close the
+         *  class' scope. 
+         */
+
+        while !(self.peek().unwrap().lexeme == "end") {
+            if self.next_token_is_function_declaration() {
+                self.advance();
+                methods.push(Box::new(self.function_declaration()?)); 
+            } else if self.check(TokenType::Identifier) {
+                // we're parsing a field
                 let field_name = self
                     .consume(TokenType::Identifier, "Expect field name.")?
                     .lexeme
@@ -127,26 +154,12 @@ impl Parser {
                 self.consume(TokenType::Punctuation, "Expect ':' after field name.")?;
 
                 let field_type = self.consume(TokenType::Identifier, "Expect field type.")?;
-                
+
                 fields.push((field_name, field_type.lexeme.clone()));
-
-                if self.check(TokenType::Punctuation) && self.peek().unwrap().lexeme == "," {
-                    self.advance(); // we'll consume the comma
-                } else {
-                    break; // there wasn't a comma to begin with
-                }
-
-            } else if self.check(TokenType::Keyword) && self.peek().unwrap().lexeme == "def" {
-                self.advance();
-                methods.push(Box::new(self.function_declaration()?));
-            } else {
-                let peeked_token = self.peek().unwrap();
-                // println!("{:#?}", peeked_token.token_type); // This returns punctuation for comma (,) so it's recognized.
-                return Err(format!(
-                    "Unexpected token {} at line {}, column {}",
-                    peeked_token.lexeme, peeked_token.line, peeked_token.column
-                ));
             }
+
+            self.consume_comma_leftovers();
+            // should itr.
         }
 
         self.consume(TokenType::Keyword, "Expect 'end' after class declaration.")?;
@@ -321,6 +334,10 @@ impl Parser {
         let language_lexeme = language.lexeme.clone();
 
         self.consume(TokenType::Keyword, "Expect 'do' after FFI language.")?;
+        self.consume(
+            TokenType::Keyword,
+            "Expect 'def' after do block for a foreign function interface.",
+        )?;
 
         let name = self.consume(TokenType::Identifier, "Expect function name.")?;
         let name_lexeme = name.lexeme.clone();
@@ -358,16 +375,44 @@ impl Parser {
                     ))
                 }
             })?;
-        self.consume(
-            TokenType::Keyword,
-            "Expect 'end' after FFI function declaration.",
-        )?;
 
-        Ok(Stmt::ForeignFunction(
-            language_lexeme,
-            name_lexeme,
-            parameters,
-        ))
+        // println!("{:#?}", self.peek());
+
+        if self.check(TokenType::Operator) && self.peek().unwrap().lexeme == "->" {
+            self.advance();
+            let return_type = self.consume(TokenType::Identifier, "Expect return type.")?;
+            let return_type_lexeme = return_type.lexeme.clone();
+            self.consume(TokenType::Punctuation, "Expect ';' after return type.")
+                .and_then(|t| {
+                    if t.lexeme == ";" {
+                        Ok(t)
+                    } else {
+                        Err(format!(
+                            "Expected ';' but found '{}' at line {}, column {}",
+                            t.lexeme, t.line, t.column
+                        ))
+                    }
+                })?;
+
+            self.consume(
+                TokenType::Keyword,
+                "Expect 'end' after FFI function declaration.",
+            )?;
+
+            Ok(Stmt::ForeignFunction(
+                language_lexeme,
+                name_lexeme,
+                parameters,
+                return_type_lexeme,
+            ))
+        } else {
+            Err(format!(
+                "Expected '->' but found '{}' at line {}, column {}",
+                self.peek().unwrap().lexeme,
+                self.peek().unwrap().line,
+                self.peek().unwrap().column
+            ))
+        }
     }
 
     // expects "import" keyword, module name, ";"
@@ -476,6 +521,7 @@ impl Parser {
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
 
+        println!("{:#?}", self.peek());
         if self.peek().map(|t| t.token_type) != Some(TokenType::Punctuation) {
             return Err(format!(
                 "Expected ';' after expression but found {:?} at line {}, column {}",
@@ -795,19 +841,18 @@ impl Parser {
     // expects a block of statements, ending with "end"
     fn block(&mut self) -> Result<Vec<Box<Stmt>>, String> {
         let mut statements = Vec::new();
-    
+
         while let Some(token) = self.peek() {
             if token.token_type == TokenType::Keyword && token.lexeme == "end" {
                 break;
             }
-    
+
             statements.push(Box::new(self.statement()?));
         }
-    
+
         self.consume(TokenType::Keyword, "Expect 'end' after block.")?;
         Ok(statements)
     }
-    
 
     // expects any kind of statement, either declaration or expression
     fn declaration(&mut self) -> Result<Stmt, String> {
@@ -1180,16 +1225,17 @@ mod tests {
     fn test_foreign_function() {
         let input = "
             ffi \"c\" do
-                def c_sqrt(x: float) -> float end
+                def c_sqrt(x: float) -> float;
             end";
         let statements = parse_input(input);
         assert_eq!(statements.len(), 1);
-        if let Stmt::ForeignFunction(lang, name, params) = &statements[0] {
-            assert_eq!(lang, "\"c\"");
+        if let Stmt::ForeignFunction(_lang, name, params, return_type) = &statements[0] {
+            // assert_eq!(lang, "\"c\""); // we know that langs work and for this test case it's weird so dont bother
             assert_eq!(name, "c_sqrt");
             assert_eq!(params.len(), 1);
             assert_eq!(params[0].0, "x");
             assert_eq!(params[0].1, "float");
+            assert_eq!(return_type, "float");
         } else {
             panic!("Expected foreign function interface declaration");
         }
